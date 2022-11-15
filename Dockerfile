@@ -31,7 +31,7 @@ RUN set -xe \
 	ttf-font-awesome ttf-mononoki ttf-hack \
     && rm -rf /var/cache/apk/* /tmp/*
 
-COPY --from=build /go/src/goconvpdf ./
-RUN ls
+COPY --from=build /go/src/goconvpdf /go/src/
+WORKDIR /tmpfs
 EXPOSE 8080/tcp
-ENTRYPOINT ["./goconvpdf"]
+ENTRYPOINT ["/go/src/goconvpdf"]

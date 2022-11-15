@@ -10,8 +10,10 @@ Dirty and ugly wrapper
 
 ```bash
 docker build -t goconvpdf .
-docker run -p 8080:8080 --rm goconvpdf
+docker run -p 8080:8080 --rm --mount type=tmpfs,destination=/tmpfs goconvpdf
 ```
+
+Using  ```--mount type=tmpfs,destination=/tmpfs``` is optional: it provides ramdisk instead of HDD and might be slightly faster for large files.
 
 2. Send your file via curl or custom HTTP call:
 
