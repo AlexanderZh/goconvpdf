@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"strings"
 
 	"github.com/google/uuid"
 
@@ -49,20 +48,40 @@ func Index(w http.ResponseWriter, r *http.Request) {
 }
 
 func Convert(w http.ResponseWriter, r *http.Request) {
-	r.ParseMultipartForm(10 << 20)
-	file, header, err := r.FormFile("fileName")
+	reader, err := r.MultipartReader()
+	if err != nil {
+		log.Println("Error:" + err.Error())
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	tmp_filename := uuid.NewString()
+	f, err := os.OpenFile(tmp_filename, os.O_WRONLY|os.O_CREATE, 0666)
+	if err != nil {
+		log.Println("Error:" + err.Error())
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	defer f.Close()
+
+	for {
+		part, err := reader.NextPart()
+		if err == io.EOF {
+			break
+		}
+
+		_, err = io.Copy(f, part)
+		if err != nil {
+			break
+		}
+	}
+
+	fileName := r.Header.Get("fileName")
 	if err != nil {
 		panic(err)
 	}
-	fileName := strings.Split(header.Filename, ".")
-	fmt.Printf("File name %s\n", fileName[0])
-	defer file.Close()
+	fmt.Printf("File name %s\n", fileName)
 	w.Header().Set("Content-Type", "multipart/form-data")
 	w.WriteHeader(http.StatusOK)
-	tmp_filename := uuid.NewString()
-	f, err := os.OpenFile(tmp_filename, os.O_WRONLY|os.O_CREATE, 0666)
-	defer f.Close()
-	io.Copy(f, file)
 	arg0 := "lowriter"
 	arg1 := "--invisible" //This command is optional, it will help to disable the splash screen of LibreOffice.
 	arg2 := "--convert-to"
@@ -85,6 +104,59 @@ func Convert(w http.ResponseWriter, r *http.Request) {
 
 }
 
+func calcBytes(b *[]byte, n uint64, c chan uint64) {
+	var i uint64 = 0
+	var sum uint64 = 0
+	for i = 0; i < n; i++ {
+		sum += (uint64)((*b)[i])
+	}
+	c <- sum
+}
+
+func testPartProcessing(w http.ResponseWriter, r *http.Request) {
+	partReader, err := r.MultipartReader()
+	if err != nil {
+		log.Println("Error:" + err.Error())
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	buf := make([]byte, 1024*1024)
+	var sum uint64 = 0
+	c := make(chan uint64)
+
+	for {
+		part, err := partReader.NextPart()
+		if err == io.EOF {
+			break
+		}
+		var n int
+		chunks := 0
+		//map
+		for {
+			n, err = part.Read(buf)
+			if err == io.EOF {
+				break
+			}
+			go calcBytes(&buf, (uint64)(n), c)
+			chunks += 1
+			if chunks%128 == 0 {
+				//reduce
+				for i := 0; i < chunks; i++ {
+					sum += <-c
+				}
+				chunks = 0
+			}
+		}
+		for i := 0; i < chunks; i++ {
+			sum += <-c
+		}
+		chunks = 0
+		go calcBytes(&buf, (uint64)(n), c)
+		sum += <-c
+		fmt.Println(sum)
+	}
+}
+
 var routes = Routes{
 	//root does nothing
 	Route{
@@ -98,5 +170,11 @@ var routes = Routes{
 		"POST",
 		"/",
 		Convert,
+	},
+	Route{
+		"TestMultipart",
+		"POST",
+		"/test",
+		testPartProcessing,
 	},
 }
